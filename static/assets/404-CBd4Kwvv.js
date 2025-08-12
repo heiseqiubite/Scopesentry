@@ -1,1 +1,0 @@
-import{_ as r}from"./Error.vue_vue_type_script_setup_true_lang-CwXNYL1m.js";import{d as s,u as a,m as t,i as o,o as e,a as u}from"./index-BShKV3Ai.js";const p=s({__name:"404",setup(s){const{push:p}=a(),_=t(),n=()=>{var r;p(null==(r=_.addRouters[0])?void 0:r.path)};return(s,a)=>(e(),o(u(r),{onErrorClick:n}))}});export{p as default};
