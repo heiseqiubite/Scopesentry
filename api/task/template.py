@@ -28,19 +28,6 @@ async def template_list(request_data: dict, _: dict = Depends(verify_token), db=
     cursor = db['ScanTemplates'].find(query, {"_id": 0,
                                               "id": {"$toString": "$_id"},
                                               'name': 1,
-                                              # 'SubdomainScan': 1,
-                                              # 'SubdomainSecurity': 1,
-                                              # 'PortScanPreparation': 1,
-                                              # 'PortScan': 1,
-                                              # 'PortFingerprint': 1,
-                                              # 'AssetMapping': 1,
-                                              # 'AssetHandle': 1,
-                                              # 'URLScan': 1,
-                                              # 'WebCrawler': 1,
-                                              # 'URLSecurity': 1,
-                                              # 'DirScan': 1,
-                                              # 'VulnerabilityScan': 1,
-                                              # 'parameters': 1
                                               }).skip((page_index - 1) * page_size).limit(page_size)
     result = await cursor.to_list(length=None)
     return {

@@ -170,7 +170,7 @@ async def insert_task(request_data, db):
     targetSource = request_data.get("targetSource", "general")
     targetList = []
     
-    if targetSource == "project" or targetSource == "scan":
+    if targetSource == "project" or targetSource == "scan" or targetSource == "general":
         targetList = await get_target_list(request_data['target'], request_data.get("ignore", ""))
     else:
         target_data = await db.ProjectTargetData.find_one({"id": request_data.get('project', [''])})
