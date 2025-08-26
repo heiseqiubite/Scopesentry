@@ -4,6 +4,7 @@ __pycache__/
 config.yaml
 file/
 logs/
+dicts/
 .env
 PLUGINKEY
 PASSWORD
