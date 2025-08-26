@@ -40,10 +40,52 @@ async def get_task_data(request_data: dict, db=Depends(get_mongo_db), _: dict = 
             [("creatTime", DESCENDING)])
         result = await cursor.to_list(length=None)
         # Process the result as needed
-        response_data = [
-            {"id": str(doc["_id"]), "status": doc["status"], "name": doc["name"], "taskNum": doc["taskNum"],
-             "progress": doc["progress"],
-             "creatTime": doc["creatTime"], "endTime": doc["endTime"]} for doc in result]
+        response_data = []
+        for doc in result:
+            try:
+                current_progress = doc.get("progress", 0)
+                status_value = doc.get("status", 0)
+                end_time_value = doc.get("endTime", "")
+                # 若进度为100，直接返回；否则从 Redis 统计 TaskInfo:progress:{taskid}:* 的数量按 taskNum 计算
+                if current_progress != 100:
+                    task_id_str = str(doc.get("_id"))
+                    keys = await redis_con.keys(f"TaskInfo:progress:{task_id_str}:*")
+                    # 仅当键对应的哈希含有非空 scan_end 时，判定为完成
+                    done_count = 0
+                    if keys:
+                        scan_end_tasks = [redis_con.hget(k, "scan_end") for k in keys]
+                        scan_end_values = await asyncio.gather(*scan_end_tasks)
+                        done_count = sum(1 for v in scan_end_values if v)
+                    task_num = doc.get("taskNum", 0) or 0
+                    computed_progress = 0
+                    if task_num > 0:
+                        computed_progress = round(round(done_count / task_num, 2) * 100, 1)
+                        if computed_progress > 100:
+                            computed_progress = 100
+                    # 回写 MongoDB 进度
+                    if computed_progress != current_progress:
+                        await db.task.update_one({"_id": doc["_id"]}, {"$set": {"progress": computed_progress}})
+                    current_progress = computed_progress
+                    # 任务完成时设置 endTime 与 status
+                    if current_progress == 100:
+                        time_key = f"TaskInfo:time:{task_id_str}"
+                        time_value = await redis_con.get(time_key)
+                        if not time_value:
+                            time_value = get_now_time()
+                        await db.task.update_one({"_id": doc["_id"]}, {"$set": {"status": 3, "endTime": time_value}})
+                        status_value = 3
+                        end_time_value = time_value
+            except Exception as _e:
+                logger.error(traceback.format_exc())
+            response_data.append({
+                "id": str(doc["_id"]),
+                "status": status_value,
+                "name": doc["name"],
+                "taskNum": doc["taskNum"],
+                "progress": current_progress,
+                "creatTime": doc["creatTime"],
+                "endTime": end_time_value,
+            })
 
         return {
             "code": 200,
@@ -490,10 +532,14 @@ async def sync_project_task(request_data: dict, db=Depends(get_mongo_db), _: dic
         if i["company"] != "":
             if i["company"] not in targets:
                 targets += "CMP:" + i["company"] + "\n"
+    
     if option == "existing":
         if project == "":
             return {"message": "ids or option or project error", "code": 404}
+        # 先更新项目配置
         await update_project_by_target(targets, ignore, project, db, background_tasks)
+        # 然后更新任务资产的归属
+        await update_task_assets_to_project(task_name, project, db)
     else:
         # 新建项目
         if tag == "" or name == "":
@@ -522,8 +568,11 @@ async def sync_project_task(request_data: dict, db=Depends(get_mongo_db), _: dic
         }
         result = await db.project.insert_one(project_obj)
         if result.inserted_id:
-            await db.ProjectTargetData.insert_one({"id": str(result.inserted_id), "target": targets})
-            background_tasks.add_task(update_project, root_domains, str(result.inserted_id), False)
+            project_id = str(result.inserted_id)
+            await db.ProjectTargetData.insert_one({"id": project_id, "target": targets})
+            # 更新任务资产的归属到新项目
+            await update_task_assets_to_project(task_name, project_id, db)
+            background_tasks.add_task(update_project, root_domains, project_id, False)
 
     return {"message": "success", "code": 200}
 
@@ -566,3 +615,27 @@ async def update_project_by_target(target, ignore, id, db, background_tasks):
     # 更新已有的资产归属
     background_tasks.add_task(update_project, all_root_domain, id, True)
     return True
+
+
+async def update_task_assets_to_project(task_names: list, project_id: str, db):
+    """
+    将指定任务的资产归属更新为指定项目
+    """
+    asset_collections = [
+        'asset', 'subdomain', 'SubdoaminTakerResult', 'UrlScan', 
+        'crawler', 'SensitiveResult', 'DirScanResult', 'vulnerability', 
+        'PageMonitoring', 'RootDomain', 'app', 'mp'
+    ]
+    
+    for collection_name in asset_collections:
+        try:
+            # 更新该集合中属于指定任务的资产的project字段
+            result = await db[collection_name].update_many(
+                {"taskName": {"$in": task_names}},
+                {"$set": {"project": project_id}}
+            )
+            if result.modified_count > 0:
+                logger.info(f"Updated {result.modified_count} documents in {collection_name} for tasks: {task_names}")
+        except Exception as e:
+            logger.error(f"Error updating {collection_name}: {str(e)}")
+            continue

@@ -9,6 +9,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.staticfiles import StaticFiles
 
 from core.config import *
+import os
 
 set_config()
 
@@ -28,7 +29,39 @@ app = FastAPI(timeout=None)
 
 from api.task.handler import scheduler
 
+"""
+日志文件配置：
+- logs/api.log    记录 API 访问日志
+- logs/mongo.log  记录 MongoDB 查询耗时日志
+保持控制台输出，便于开发调试
+"""
+logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+if not os.path.exists(logs_dir):
+    os.makedirs(logs_dir, exist_ok=True)
 
+# API 访问日志 sink（按 channel 过滤）
+logger.add(
+    os.path.join(logs_dir, "api.log"),
+    rotation="20 MB",
+    retention="7 days",
+    enqueue=True,
+    encoding="utf-8",
+    backtrace=False,
+    diagnose=False,
+    filter=lambda record: record["extra"].get("channel") == "api",
+)
+
+# Mongo 查询耗时日志 sink（按 channel 过滤）
+logger.add(
+    os.path.join(logs_dir, "mongo.log"),
+    rotation="20 MB",
+    retention="7 days",
+    enqueue=True,
+    encoding="utf-8",
+    backtrace=False,
+    diagnose=False,
+    filter=lambda record: record["extra"].get("channel") == "mongo",
+)
 
 
 @app.on_event("startup")
@@ -90,6 +123,19 @@ async def get_favicon(request: Request):
 
 app.add_middleware(GZipMiddleware, minimum_size=5 * 1024 * 1024)
 
+class ApiAccessLogMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        response = await call_next(request)
+        end_time = time.time()
+        duration = end_time - start_time
+        if request.url.path.startswith("/api"):
+            logger.bind(channel="api").info(
+                f"{request.client.host} {request.method} {request.url.path} -> {response.status_code} {duration:.3f}s"
+            )
+        return response
+
+
 @app.get("/")
 async def read_root():
     return FileResponse("static/index.html")
@@ -105,7 +151,7 @@ class MongoDBQueryTimeMiddleware(BaseHTTPMiddleware):
         # 获取当前请求的路由信息
         route = request.url.path
         if route.startswith("/api"):
-            logger.info(f"MongoDB 查询时间：{query_time} 秒, 路由: {route}")
+            logger.bind(channel="mongo").info(f"MongoDB 查询时间：{query_time:.3f} 秒, 路由: {route}")
         return response
 
 
@@ -113,6 +159,7 @@ SQLTIME = True
 
 if SQLTIME:
     app.add_middleware(MongoDBQueryTimeMiddleware)
+app.add_middleware(ApiAccessLogMiddleware)
 
 
 @app.websocket("/")
