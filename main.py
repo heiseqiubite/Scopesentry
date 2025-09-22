@@ -94,6 +94,7 @@ from api.dictionary import router as dictionary_router
 from api.asset import router as asset_route
 from api.plugins import router as plugin_route
 from api.project import router as project_route
+from api.vuln import router as vuln_router
 
 app.include_router(plugin_route, prefix='/api')
 app.include_router(users.router, prefix='/api')
@@ -105,6 +106,7 @@ app.include_router(node.router, prefix='/api')
 app.include_router(project_route, prefix='/api')
 app.include_router(task.router, prefix='/api')
 app.include_router(asset_route, prefix='/api')
+app.include_router(vuln_router, prefix='/api')
 app.include_router(notification.router, prefix='/api')
 app.include_router(system.router, prefix='/api')
 app.include_router(export.router, prefix='/api')
