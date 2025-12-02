@@ -51,7 +51,7 @@ async def asset_data(request_data: dict, db=Depends(get_mongo_db), _: dict = Dep
         cursor: AsyncIOMotorCursor = db['asset'].find(
             query,
             projection
-        ).skip((page_index - 1) * page_size).limit(page_size).sort([("time", DESCENDING)])
+        ).skip((page_index - 1) * page_size).limit(page_size).sort([("time", DESCENDING), ("_id", DESCENDING)])
         
         result_list = []
         async for r in cursor:
@@ -199,7 +199,7 @@ async def asset_detail(request_data: dict, db=Depends(get_mongo_db), _: dict = D
 
         # Query the database for content based on ID
         query = {"assetid": asset_id}
-        cursor: AsyncIOMotorCursor = db.AssetChangeLog.find(query).sort([("time", DESCENDING)])
+        cursor: AsyncIOMotorCursor = db.AssetChangeLog.find(query).sort([("time", DESCENDING), ("_id", DESCENDING)])
         results = await cursor.to_list(length=None)
         result_list = []
         for result in results:
